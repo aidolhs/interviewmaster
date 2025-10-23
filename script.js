@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const downloadBtns = document.querySelectorAll('.download-btn');
 
   // ✅ API 엔드포인트
-  const API_BASE = window.API_BASE || 'https://port-0-interviewmaster-mh1kppotb9275e59.sel3.cloudtype.app/';
+  const API_BASE = window.API_BASE || 'https://port-0-interviewmaster-mh33acdv9b53c1c4.sel3.cloudtype.app/';
   const GENERATE_URL = `${API_BASE}/generate`;
   const DOWNLOAD_URL = `${API_BASE}/download`;
 
@@ -205,5 +205,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.URL.revokeObjectURL(url);
   }
 });
+
 
 
