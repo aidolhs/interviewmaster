@@ -90,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setLoadingState(isLoading) {
     if (isLoading) {
       generateBtn.disabled = true;
-      generateBtn.textContent = 'Master가 일하는 중...';
+      generateBtn.textContent = 'Master 일하는 중...(오류 발생시 새로 고침)';
       loadingDiv.classList.remove('hidden');
     } else {
       generateBtn.disabled = false;
@@ -205,4 +205,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.URL.revokeObjectURL(url);
   }
 });
+
 
