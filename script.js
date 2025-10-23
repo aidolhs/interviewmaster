@@ -90,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setLoadingState(isLoading) {
     if (isLoading) {
       generateBtn.disabled = true;
-      generateBtn.textContent = 'AI 분석 중...';
+      generateBtn.textContent = 'Master가 일하는 중...';
       loadingDiv.classList.remove('hidden');
     } else {
       generateBtn.disabled = false;
@@ -200,8 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `AI_면접_질문.${format}`;
+    a.href = url; a.download = `면접_질문+답변.${format}`;
     document.body.appendChild(a); a.click(); a.remove();
     window.URL.revokeObjectURL(url);
   }
 });
+
