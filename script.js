@@ -1,4 +1,3 @@
-// script.js
 document.addEventListener('DOMContentLoaded', () => {
   // 요소
   const uploadForm = document.getElementById('upload-form');
@@ -16,11 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const copyBtn = document.getElementById('copy-btn');
   const downloadBtns = document.querySelectorAll('.download-btn');
 
-  // ✅ API 엔드포인트
+  // API 엔드포인트
   const API_BASE = window.API_BASE || 'https://port-0-interviewpro-mh3iopw4cf627816.sel3.cloudtype.app';
   const GENERATE_URL = `${API_BASE}/generate`;
-
-  // ✅ 새로 추가된 HTML 내보내기 엔드포인트
+  // 새 HTML 내보내기 엔드포인트
   const EXPORT_PDF_URL  = `${API_BASE}/export/pdf-html`;
   const EXPORT_DOCX_URL = `${API_BASE}/export/docx-html`;
 
@@ -28,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedFile = null;
   let rawText = '';
 
-  // 마크다운 옵션 (미리보기 렌더용)
+  // 마크다운 옵션
   marked.use({ breaks: true, gfm: true });
 
   // ========== 드래그&드롭 ==========
@@ -169,15 +167,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 다운로드 (HTML 기반 저장 경로 사용)
+  // 다운로드 (★ 여기만 핵심 수정)
   downloadBtns.forEach(button => {
     button.addEventListener('click', async () => {
       const format = button.getAttribute('data-format'); // pdf | docx
-      if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
+      // 미리보기의 HTML을 그대로 보냄
+      const html = document.getElementById('result-area').innerHTML;
+      if (!html || !html.trim()) { alert('다운로드할 내용(HTML)이 없습니다.'); return; }
+
       button.disabled = true;
       button.textContent = format === 'pdf' ? 'PDF 생성 중...' : 'DOCX 생성 중...';
       try {
-        await downloadFile(format);
+        await exportHtml(html, format);
       } catch (e) {
         console.error('[DOWNLOAD fetch error]', e);
         alert(`다운로드 중 오류: ${e.message}`);
@@ -188,15 +189,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ✅ 미리보기의 렌더된 HTML을 서버로 보내 변환
-  async function downloadFile(format) {
-    const htmlFragment = document.getElementById('result-area').innerHTML;
-    if (!htmlFragment || !htmlFragment.trim()) {
-      throw new Error('렌더된 HTML을 찾을 수 없습니다.');
-    }
-
+  async function exportHtml(innerHtml, format) {
+    // 필요시 추가 CSS를 함께 보낼 수 있습니다.
     const form = new FormData();
-    form.append('html', htmlFragment);
+    form.append('html', innerHtml);
+    // form.append('css', '/* 추가 스타일이 있으면 여기에 */');
 
     const endpoint = (format === 'pdf') ? EXPORT_PDF_URL : EXPORT_DOCX_URL;
 
@@ -206,15 +203,11 @@ document.addEventListener('DOMContentLoaded', () => {
       try { const data = await res.json(); if (data && data.error) msg = data.error; } catch (_) {}
       throw new Error(msg);
     }
-
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `면접_질문_모범답변.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    a.href = url; a.download = `면접_질문+답변.${format}`;
+    document.body.appendChild(a); a.click(); a.remove();
     window.URL.revokeObjectURL(url);
   }
 });
