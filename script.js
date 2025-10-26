@@ -1,49 +1,65 @@
-// =======================================================
-// Interview Master - Frontend Script (HTML Export: JSON)
-// =======================================================
+// ===================================================================================
+// script.js — Interview Master (프런트엔드 로직)
+// - PDF 업로드 → /generate 스트리밍 수신(마크다운) → 미리보기 렌더
+// - [PDF/DOCX로 저장] → /download 로 미리보기의 HTML 전달하여 서버 변환
+// ===================================================================================
+
 document.addEventListener('DOMContentLoaded', () => {
-  // ---------- 요소 ----------
+  // ---------------------------------------------------------------------------
+  // [공통 엘리먼트]
+  // ---------------------------------------------------------------------------
   const uploadForm      = document.getElementById('upload-form');
   const pdfFileInput    = document.getElementById('pdf-file');
   const dropzone        = document.getElementById('dropzone');
   const fileLabelText   = document.getElementById('file-text');
   const fileNameDisplay = document.getElementById('file-name');
+
   const generateBtn     = document.getElementById('generate-btn');
   const loadingDiv      = document.getElementById('loading');
+
   const resultContainer = document.getElementById('result-container');
-  const resultArea      = document.getElementById('result-area');
-  const rawArea         = document.getElementById('raw-area');
+  const resultArea      = document.getElementById('result-area');     // 미리보기(HTML)
+  const rawArea         = document.getElementById('raw-area');        // 원문(마크다운)
+  const copyBtn         = document.getElementById('copy-btn');
+
   const errorContainer  = document.getElementById('error-container');
   const errorMessage    = document.getElementById('error-message');
-  const copyBtn         = document.getElementById('copy-btn');
-  const downloadBtns    = document.querySelectorAll('.download-btn');
 
-  // ---------- API ----------
+  const downloadBtns    = document.querySelectorAll('.download-btn'); // [PDF], [DOCX]
+
+  // ---------------------------------------------------------------------------
+  // [엔드포인트]
+  // ---------------------------------------------------------------------------
   const API_BASE     = window.API_BASE || '';
   const GENERATE_URL = `${API_BASE}/generate`;
-  const EXPORT_PDF   = `${API_BASE}/export/pdf-html`;
-  const EXPORT_DOCX  = `${API_BASE}/export/docx-html`;
+  const DOWNLOAD_URL = `${API_BASE}/download`;
 
-  // ---------- 상태 ----------
+  // ---------------------------------------------------------------------------
+  // [상태]
+  // ---------------------------------------------------------------------------
   let selectedFile = null;
-  let rawText = '';
+  let rawText      = '';      // 모델이 스트리밍으로 보내는 마크다운 원문
 
-  // ---------- 마크다운 옵션 ----------
+  // 마크다운 렌더 옵션
   marked.use({ breaks: true, gfm: true });
 
-  // ---------- 공통 함수 ----------
+  // ---------------------------------------------------------------------------
+  // [유틸]
+  // ---------------------------------------------------------------------------
   function hideResults() {
     resultContainer.classList.add('hidden');
     errorContainer.classList.add('hidden');
     resultArea.innerHTML = '';
-    rawArea.textContent = '';
+    rawArea.textContent  = '';
     rawText = '';
     setActionButtonsEnabled(false);
   }
+
   function setActionButtonsEnabled(enabled) {
     copyBtn.disabled = !enabled;
     downloadBtns.forEach(b => (b.disabled = !enabled));
   }
+
   function setLoadingState(isLoading) {
     if (isLoading) {
       generateBtn.disabled = true;
@@ -55,34 +71,45 @@ document.addEventListener('DOMContentLoaded', () => {
       loadingDiv.classList.add('hidden');
     }
   }
+
   function displayError(message) {
     errorMessage.textContent = message;
     errorContainer.classList.remove('hidden');
   }
+
   function renderMarkdownToResult(text) {
     const html = DOMPurify.sanitize(marked.parse(text || ''));
     resultArea.innerHTML = html;
   }
+
   function autoScrollResult() {
     resultArea.scrollTop = resultArea.scrollHeight;
   }
 
-  // ---------- 드래그&드롭 ----------
-  ['dragenter','dragover'].forEach(ev => {
-    dropzone.addEventListener(ev, (e) => {
+  // 미리보기의 “렌더된 HTML”을 그대로 서버로 보낸다.
+  function getExportHtml() {
+    // section wrapper 등 추가하고 싶다면 여기서 감싸서 보낼 수 있음.
+    return resultArea.innerHTML;
+  }
+
+  // ---------------------------------------------------------------------------
+  // [드래그&드롭]
+  // ---------------------------------------------------------------------------
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropzone.addEventListener(ev, e => {
       e.preventDefault(); e.stopPropagation();
       dropzone.classList.add('dragover');
       fileLabelText.textContent = '여기에 놓으면 업로드됩니다!';
     });
   });
-  ['dragleave','drop'].forEach(ev => {
-    dropzone.addEventListener(ev, (e) => {
+  ['dragleave', 'drop'].forEach(ev => {
+    dropzone.addEventListener(ev, e => {
       e.preventDefault(); e.stopPropagation();
       dropzone.classList.remove('dragover');
       fileLabelText.textContent = '클릭하거나 여기로 PDF를 끌어다 놓으세요';
     });
   });
-  dropzone.addEventListener('drop', (e) => {
+  dropzone.addEventListener('drop', e => {
     const items = e.dataTransfer.files;
     if (!items || !items.length) return;
     const file = items[0];
@@ -95,13 +122,16 @@ document.addEventListener('DOMContentLoaded', () => {
     generateBtn.disabled = false;
   });
 
-  // ---------- 파일 선택 ----------
+  // 파일 선택
   pdfFileInput.addEventListener('change', () => {
     const file = pdfFileInput.files[0];
     if (file) {
       if (!file.type.startsWith('application/pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
         alert('PDF 파일만 선택해주세요.');
-        pdfFileInput.value = ''; selectedFile = null; generateBtn.disabled = true; return;
+        pdfFileInput.value = '';
+        selectedFile = null;
+        generateBtn.disabled = true;
+        return;
       }
       selectedFile = file;
       fileLabelText.textContent = '파일이 선택되었습니다!';
@@ -115,7 +145,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ---------- 제출(생성) ----------
+  // ---------------------------------------------------------------------------
+  // [질문/답변 생성 – /generate 스트리밍]
+  // ---------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideResults();
@@ -131,7 +163,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const response = await fetch(GENERATE_URL, { method: 'POST', body: formData });
+      const response = await fetch(GENERATE_URL, {
+        method: 'POST',
+        body: formData,
+        mode: 'cors',
+        credentials: 'omit'
+      });
       if (!response.ok) throw new Error(`서버 오류: ${response.status} ${response.statusText}`);
 
       resultContainer.classList.remove('hidden');
@@ -139,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
       rawText = '';
       rawArea.textContent = '';
 
-      const reader = response.body.getReader();
+      const reader  = response.body.getReader();
       const decoder = new TextDecoder();
       while (true) {
         const { done, value } = await reader.read();
@@ -152,37 +189,69 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       setActionButtonsEnabled(rawText.trim().length > 0);
     } catch (err) {
-      console.error('[GENERATE fetch error]', err);
+      console.error('[GENERATE error]', err);
       displayError(err.message || '요청에 실패했습니다.');
     } finally {
       setLoadingState(false);
     }
   });
 
-  // ---------- 복사 ----------
+  // ---------------------------------------------------------------------------
+  // [복사하기]
+  // ---------------------------------------------------------------------------
   copyBtn.addEventListener('click', async () => {
     try {
       if (!rawText.trim()) { alert('복사할 결과가 없습니다.'); return; }
       await navigator.clipboard.writeText(rawText);
       alert('결과(원본 텍스트)가 클립보드에 복사되었습니다!');
     } catch (err) {
-      console.error('복사 실패:', err); alert('복사에 실패했습니다.');
+      console.error('복사 실패:', err);
+      alert('복사에 실패했습니다.');
     }
   });
 
-  // ---------- HTML 내보내기(JSON) ----------
-  async function exportHtml(html, format) {
-    const endpoint = (format === 'pdf') ? EXPORT_PDF : EXPORT_DOCX;
+  // ---------------------------------------------------------------------------
+  // [다운로드: PDF / DOCX]  — /download POST (content=HTML, format=pdf|docx)
+  // ---------------------------------------------------------------------------
+  downloadBtns.forEach(button => {
+    button.addEventListener('click', async () => {
+      const format = button.getAttribute('data-format'); // "pdf" | "docx"
+      if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
 
-    const res = await fetch(endpoint, {
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = (format === 'pdf') ? 'PDF 생성 중...' : 'DOCX 생성 중...';
+
+      try {
+        await downloadFile(getExportHtml(), format);
+      } catch (e) {
+        console.error('[DOWNLOAD error]', e);
+        alert(`다운로드 중 오류: ${e.message}`);
+      } finally {
+        button.textContent = originalLabel;
+        button.disabled = false;
+      }
+    });
+  });
+
+  async function downloadFile(htmlContent, format) {
+    const form = new FormData();
+    form.append('content', htmlContent);                  // ← 미리보기의 HTML을 서버로 전달
+    form.append('format',  format);
+
+    const res = await fetch(`${DOWNLOAD_URL}?format=${encodeURIComponent(format)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json;charset=UTF-8' },
-      body: JSON.stringify({ html })
+      body: form,
+      mode: 'cors',
+      credentials: 'omit'
     });
 
     if (!res.ok) {
-      let msg = `서버 오류: ${res.status}`;
-      try { const data = await res.json(); if (data && data.error) msg = data.error; } catch (_) {}
+      let msg = `서버 오류: ${res.status} ${res.statusText}`;
+      try {
+        const data = await res.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
       throw new Error(msg);
     }
 
@@ -190,39 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const url  = window.URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url;
-    a.download = (format === 'pdf') ? '면접_질문+답변.pdf' : '면접_질문+답변.docx';
+    a.download = (format === 'pdf') ? '면접_질문+답.pdf' : '면접_질문+답.docx';
     document.body.appendChild(a);
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
   }
-
-  // ---------- 다운로드 ----------
-  downloadBtns.forEach(button => {
-    button.addEventListener('click', async () => {
-      let format = button.getAttribute('data-format') || (button.id === 'btn-pdf' ? 'pdf' : 'docx');
-
-      // 현재 화면의 렌더링 HTML을 안전하게 확보
-      let html = (resultArea && resultArea.innerHTML ? resultArea.innerHTML.trim() : '');
-      if (!html && rawText.trim()) {
-        html = DOMPurify.sanitize(marked.parse(rawText)).trim();
-        if (resultArea) resultArea.innerHTML = html; // 화면에도 즉시 반영
-      }
-      if (!html) { alert('다운로드할 내용(HTML)이 없습니다.'); return; }
-
-      const originalText = button.textContent;
-      button.disabled = true;
-      button.textContent = (format === 'pdf') ? 'PDF 생성 중...' : 'DOCX 생성 중...';
-
-      try {
-        await exportHtml(html, format);
-      } catch (e) {
-        console.error('[EXPORT error]', e);
-        alert(`다운로드 중 오류: ${e.message}`);
-      } finally {
-        button.textContent = originalText;
-        button.disabled = false;
-      }
-    });
-  });
 });
