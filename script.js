@@ -1,3 +1,4 @@
+// script.js
 document.addEventListener('DOMContentLoaded', () => {
   // 요소
   const uploadForm = document.getElementById('upload-form');
@@ -8,27 +9,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const generateBtn = document.getElementById('generate-btn');
   const loadingDiv = document.getElementById('loading');
   const resultContainer = document.getElementById('result-container');
-  const resultArea = document.getElementById('result-area');      // ✅ 미리보기(렌더된 HTML)
-  const rawArea = document.getElementById('raw-area');            // 원본 마크다운
+  const resultArea = document.getElementById('result-area');
+  const rawArea = document.getElementById('raw-area');
   const errorContainer = document.getElementById('error-container');
   const errorMessage = document.getElementById('error-message');
   const copyBtn = document.getElementById('copy-btn');
-  const pdfBtn = document.getElementById('pdf-btn');
-  const docxBtn = document.getElementById('docx-btn');
+  const downloadBtns = document.querySelectorAll('.download-btn');
 
   // ✅ API 엔드포인트
   const API_BASE = window.API_BASE || 'https://port-0-interviewpro-mh3iopw4cf627816.sel3.cloudtype.app';
   const GENERATE_URL = `${API_BASE}/generate`;
 
-  // (신규) HTML 기반 저장 엔드포인트
-  const EXPORT_PDF_HTML_URL  = `${API_BASE}/export/pdf-html`;
-  const EXPORT_DOCX_HTML_URL = `${API_BASE}/export/docx-html`;
+  // ✅ 새로 추가된 HTML 내보내기 엔드포인트
+  const EXPORT_PDF_URL  = `${API_BASE}/export/pdf-html`;
+  const EXPORT_DOCX_URL = `${API_BASE}/export/docx-html`;
 
   // 상태
   let selectedFile = null;
   let rawText = '';
 
-  // 마크다운 옵션
+  // 마크다운 옵션 (미리보기 렌더용)
   marked.use({ breaks: true, gfm: true });
 
   // ========== 드래그&드롭 ==========
@@ -89,8 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function setActionButtonsEnabled(enabled) {
     copyBtn.disabled = !enabled;
-    pdfBtn.disabled = !enabled;
-    docxBtn.disabled = !enabled;
+    downloadBtns.forEach(b => (b.disabled = !enabled));
   }
   function setLoadingState(isLoading) {
     if (isLoading) {
@@ -108,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
     errorContainer.classList.remove('hidden');
   }
   function renderMarkdownToResult(text) {
-    // 미리보기 HTML (브라우저에서 스타일링됨 → 이걸 그대로 서버로 전송)
     const html = DOMPurify.sanitize(marked.parse(text || ''));
     resultArea.innerHTML = html;
   }
@@ -171,52 +169,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ====== ✅ HTML 그대로 전송하여 저장 ======
-  function getPreviewHTML() {
-    // 미리보기(#result-area)의 HTML을 그대로 추출
-    return resultArea.innerHTML || '';
-  }
-
-  async function saveAs(format) {
-    if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
-
-    const html = getPreviewHTML();
-    if (!html.trim()) { alert('미리보기 내용이 없습니다.'); return; }
-
-    // 버튼 상태 표시
-    let btn, label;
-    if (format === 'pdf') { btn = pdfBtn; label = '.PDF로 저장'; btn.textContent = 'PDF 생성 중...'; }
-    else { btn = docxBtn; label = '.DOCX로 저장'; btn.textContent = 'DOCX 생성 중...'; }
-    btn.disabled = true;
-
-    try {
-      const form = new FormData();
-      form.append('html', html);
-
-      const url = (format === 'pdf') ? EXPORT_PDF_HTML_URL : EXPORT_DOCX_HTML_URL;
-      const res = await fetch(url, { method: 'POST', body: form });
-
-      if (!res.ok) {
-        let msg = `서버 오류: ${res.status} ${res.statusText}`;
-        try { const data = await res.json(); if (data && data.error) msg = data.error; } catch (_) {}
-        throw new Error(msg);
+  // 다운로드 (HTML 기반 저장 경로 사용)
+  downloadBtns.forEach(button => {
+    button.addEventListener('click', async () => {
+      const format = button.getAttribute('data-format'); // pdf | docx
+      if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
+      button.disabled = true;
+      button.textContent = format === 'pdf' ? 'PDF 생성 중...' : 'DOCX 생성 중...';
+      try {
+        await downloadFile(format);
+      } catch (e) {
+        console.error('[DOWNLOAD fetch error]', e);
+        alert(`다운로드 중 오류: ${e.message}`);
+      } finally {
+        button.textContent = format === 'pdf' ? '.PDF로 저장' : '.DOCX로 저장';
+        button.disabled = false;
       }
+    });
+  });
 
-      const blob = await res.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = (format === 'pdf') ? '면접_질문_모범답변.pdf' : '면접_질문_모범답변.docx';
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (e) {
-      console.error('[EXPORT error]', e);
-      alert(`다운로드 중 오류: ${e.message}`);
-    } finally {
-      btn.textContent = label;
-      btn.disabled = false;
+  // ✅ 미리보기의 렌더된 HTML을 서버로 보내 변환
+  async function downloadFile(format) {
+    const htmlFragment = document.getElementById('result-area').innerHTML;
+    if (!htmlFragment || !htmlFragment.trim()) {
+      throw new Error('렌더된 HTML을 찾을 수 없습니다.');
     }
-  }
 
-  pdfBtn.addEventListener('click', () => saveAs('pdf'));
-  docxBtn.addEventListener('click', () => saveAs('docx'));
+    const form = new FormData();
+    form.append('html', htmlFragment);
+
+    const endpoint = (format === 'pdf') ? EXPORT_PDF_URL : EXPORT_DOCX_URL;
+
+    const res = await fetch(endpoint, { method: 'POST', body: form });
+    if (!res.ok) {
+      let msg = `서버 오류: ${res.status} ${res.statusText}`;
+      try { const data = await res.json(); if (data && data.error) msg = data.error; } catch (_) {}
+      throw new Error(msg);
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `면접_질문_모범답변.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
 });
