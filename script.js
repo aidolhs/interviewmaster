@@ -1,6 +1,6 @@
-// =====================================
-// Interview Master - Frontend Script
-// =====================================
+// =======================================================
+// Interview Master - Frontend Script (HTML Export: JSON)
+// =======================================================
 document.addEventListener('DOMContentLoaded', () => {
   // ---------- 요소 ----------
   const uploadForm      = document.getElementById('upload-form');
@@ -170,18 +170,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ---------- HTML 내보내기 도우미 ----------
+  // ---------- HTML 내보내기(JSON) ----------
   async function exportHtml(html, format) {
     const endpoint = (format === 'pdf') ? EXPORT_PDF : EXPORT_DOCX;
-    const form = new FormData();
-    form.append('html', html);
 
-    const res = await fetch(endpoint, { method: 'POST', body: form });
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+      body: JSON.stringify({ html })
+    });
+
     if (!res.ok) {
       let msg = `서버 오류: ${res.status}`;
       try { const data = await res.json(); if (data && data.error) msg = data.error; } catch (_) {}
       throw new Error(msg);
     }
+
     const blob = await res.blob();
     const url  = window.URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -196,40 +200,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- 다운로드 ----------
   downloadBtns.forEach(button => {
     button.addEventListener('click', async () => {
-      // 1) 포맷 안전 추출
-      let format = button.getAttribute('data-format');
-      if (!format) {
-        format = (button.id === 'btn-pdf') ? 'pdf' : 'docx';
-      }
+      let format = button.getAttribute('data-format') || (button.id === 'btn-pdf' ? 'pdf' : 'docx');
 
-      // 2) HTML 안전 추출 (비면 rawText로 즉시 렌더링)
-      const container  = document.getElementById('result-area');
-      let payloadHtml  = (container && container.innerHTML ? container.innerHTML.trim() : '');
-      if (!payloadHtml) {
-        payloadHtml = DOMPurify.sanitize(marked.parse(rawText || '')).trim();
-        if (container) container.innerHTML = payloadHtml;
+      // 현재 화면의 렌더링 HTML을 안전하게 확보
+      let html = (resultArea && resultArea.innerHTML ? resultArea.innerHTML.trim() : '');
+      if (!html && rawText.trim()) {
+        html = DOMPurify.sanitize(marked.parse(rawText)).trim();
+        if (resultArea) resultArea.innerHTML = html; // 화면에도 즉시 반영
       }
-      if (!payloadHtml) {
-        alert('다운로드할 내용(HTML)이 없습니다.');
-        return;
-      }
+      if (!html) { alert('다운로드할 내용(HTML)이 없습니다.'); return; }
 
-      // 3) 버튼 진행 문구/복원
-      const origText = button.textContent;
-      const busyText = (format === 'pdf') ? 'PDF 생성 중...' : 'DOCX 생성 중...';
+      const originalText = button.textContent;
       button.disabled = true;
-      button.textContent = busyText;
+      button.textContent = (format === 'pdf') ? 'PDF 생성 중...' : 'DOCX 생성 중...';
 
       try {
-        await exportHtml(payloadHtml, format);
+        await exportHtml(html, format);
       } catch (e) {
         console.error('[EXPORT error]', e);
         alert(`다운로드 중 오류: ${e.message}`);
       } finally {
-        button.textContent = origText;
+        button.textContent = originalText;
         button.disabled = false;
       }
     });
   });
-
 });
