@@ -65,7 +65,7 @@ header p {
   align-items: center;
   border: 2px dashed var(--dropzone-border);
   border-radius: 12px;
-  padding: 25px 28px;
+  padding: 22px 28px;
   cursor: pointer;
   background: var(--dropzone-bg);
   transition: all 0.25s ease;
@@ -270,4 +270,5 @@ footer {
   header h1 { font-size: 1.8rem; }
   .markdown-body { max-height: 60vh; }
 }
+
 
