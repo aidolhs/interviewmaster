@@ -1,8 +1,9 @@
 // ====================================================================================
-// script.js — Interview Master (HTML 미리보기 그대로 DOCX/PDF 서버 변환 호출)
-//  - /generate : PDF 업로드 → 스트리밍 텍스트 → 미리보기 렌더
-//  - /export/pdf-html : 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(ReportLab) PDF
-//  - /export/docx-html: 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(DOCX)
+// script.js — Interview Master
+//  - /generate : 스트리밍 수신(페이지 단위 ::progress 핑 처리 + 1회 자동 재시도)
+//  - /export/pdf-html : 미리보기 HTML → PDF
+//  - /export/docx-html: 미리보기 HTML → DOCX
+//  - 버튼 라벨/상태 분리 관리
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -82,6 +83,28 @@ document.addEventListener('DOMContentLoaded', () => {
     resultArea.scrollTop = resultArea.scrollHeight;
   }
 
+  // 지연(재시도용)
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // 1회 자동 재시도 래퍼
+  async function fetchWithRetry(url, options, retries = 1) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (retries > 0) {
+        await sleep(1000);
+        return fetchWithRetry(url, options, retries - 1);
+      }
+      throw err;
+    }
+  }
+
+  // 진행률 표시(원하면 UI를 여기에 구현)
+  function handleProgressLine(line) {
+    // 예: "::progress EXTRACT_START 12", "::progress EXTRACT 3/12", "::progress AI_START"
+    // console.log('[progress]', line);
+  }
+
   // ----------------------------------------------------------------------------------
   // 드래그&드롭
   // ----------------------------------------------------------------------------------
@@ -133,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 생성 (스트리밍)
+  // 생성 (스트리밍: ::progress 라인 무시 + 결과만 누적)
   // ----------------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -150,7 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const response = await fetch(GENERATE, { method: 'POST', body: formData });
+      // 타임아웃 회피를 위해 1회 자동 재시도
+      const response = await fetchWithRetry(GENERATE, { method: 'POST', body: formData });
       if (!response.ok) throw new Error(`서버 오류: ${response.status} ${response.statusText}`);
 
       resultContainer.classList.remove('hidden');
@@ -160,15 +184,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        rawText += chunk;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // 줄 단위로 자르며 ::progress 라인은 화면에 누적하지 않음
+        const parts = buffer.split(/\r?\n/);
+        buffer = parts.pop(); // 반쪽 줄은 버퍼에 남김
+        for (const line of parts) {
+          if (line.startsWith('::progress')) {
+            handleProgressLine(line);
+            continue;
+          }
+          rawText += line + '\n';
+        }
+
         rawArea.textContent = rawText;
         renderMarkdownToResult(rawText);
         autoScrollResult();
       }
+
+      // 남은 버퍼 처리
+      if (buffer && !buffer.startsWith('::progress')) {
+        rawText += buffer;
+        rawArea.textContent = rawText;
+        renderMarkdownToResult(rawText);
+      }
+
       setActionButtonsEnabled(rawText.trim().length > 0);
     } catch (err) {
       console.error('[GENERATE fetch error]', err);
