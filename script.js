@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // === 하트비트 라인(':hb')은 미리보기/원문에 반영하지 않음 ===
       chunk = chunk.replace(/^:hb\s*[\r\n]*/gm, '');
-      if (!chunk) continue;
+      if (chunk.trim() === ':hb') continue;  // 연결유지용 ping은 무시
 
       rawText += chunk;
       rawArea.textContent = rawText;
@@ -270,3 +270,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 });
+
