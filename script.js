@@ -1,7 +1,10 @@
 // ====================================================================================
-// script.js — Interview Master (하트비트 없이 안정 스트리밍: 상한 타임아웃 + 1회 재시도 + 안내 배너)
-//  - 서버 코드는 수정하지 않습니다. (기존 /generate 스트림 그대로)
-//  - Gunicorn: --timeout=300 권장 (Start Command에서 적용)
+// script.js — Interview Master (안정 스트리밍 + 빈 줄 하트비트 무시)
+//  - /generate : PDF 업로드 → 스트리밍 텍스트 → 미리보기 렌더
+//  - /export/pdf-html : 미리보기의 body HTML → 서버 PDF
+//  - /export/docx-html: 미리보기의 body HTML → 서버 DOCX
+//  - 개선: 서버가 보내는 빈 줄("\n") 하트비트를 클라이언트에서 완전히 무시
+//  - 개선: 상한 타임아웃 + 1회 재시도 + 무중단 안내 배너
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -82,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ----------------------------------------------------------------------------------
-  // 드래그&드롭 (유지)
+  // 드래그&드롭
   // ----------------------------------------------------------------------------------
   ['dragenter', 'dragover'].forEach(ev => {
     dropzone.addEventListener(ev, (e) => {
@@ -111,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     generateBtn.disabled = false;
   });
 
-  // 파일 선택 (유지)
+  // 파일 선택
   pdfFileInput.addEventListener('change', () => {
     const file = pdfFileInput.files[0];
     if (file) {
@@ -132,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 생성(스트리밍) — 상한 타임아웃 + 무중단 안내 + 1회 재시도
+  // 생성(스트리밍) — 상한 타임아웃 + 1회 재시도 + 무중단 안내 + 빈 줄 하트비트 무시
   // ----------------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -175,14 +178,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    // (A) 전체 상한 타임아웃 (예: 5분 30초)
+    // 전체 상한 타임아웃 (1차 5분30초, 2차 시도는 runGenerateWithRetry가 담당)
     const OVERALL_LIMIT_MS = 330000;
     const controller = new AbortController();
     const overallTimer = setTimeout(() => controller.abort(new Error('처리가 오래 걸려 연결을 종료했습니다. 다시 시도해 주세요.')), OVERALL_LIMIT_MS);
 
-    // (B) “무중단 안내 배너”: 유효 데이터가 오래 안 오면 안내만 띄우고 연결은 유지
+    // “무중단 안내 배너”: 유효 데이터가 오래 안 오면 안내만 띄우고 연결은 유지
     let lastUsefulTs = Date.now();
-    const INFO_BANNER_AFTER_MS = 25000; // 25초
+    const INFO_BANNER_AFTER_MS = 25000; // 25초 후 안내
     let showedInfo = false;
     const watch = setInterval(() => {
       const now = Date.now();
@@ -193,7 +196,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }, 1000);
 
-    // (C) fetch 시작
     const response = await fetch(GENERATE, { method: 'POST', body: formData, signal: controller.signal });
     if (!response.ok) {
       clearTimeout(overallTimer); clearInterval(watch);
@@ -213,10 +215,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        if (!chunk) continue;
+        let chunk = decoder.decode(value, { stream: true });
 
-        // “유효한” 데이터 도착 → 안내 배너 숨김
+        // === 핵심: 빈 줄 하트비트 무시 ===
+        // 서버는 10~15초마다 "\n"을 흘려보냄. 화면/저장에 영향 없도록 완전히 무시.
+        if (!chunk || !chunk.trim()) {
+          continue;
+        }
+        // ==============================
+
+        // 유효 데이터 도착 → 안내 배너 숨김
         lastUsefulTs = Date.now();
         errorContainer.classList.add('hidden');
 
@@ -234,13 +242,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ----------------------------------------------------------------------------------
-  // 결과 복사 (유지)
+  // 결과 복사
   // ----------------------------------------------------------------------------------
   copyBtn.addEventListener('click', async () => {
     try {
       if (!rawText.trim()) { alert('복사할 결과가 없습니다.'); return; }
       await navigator.clipboard.writeText(rawText);
-      alert('결과(원문 텍스트)가 클립보드에 복사되었습니다!');
+      alert('결과(원본 텍스트)가 클립보드에 복사되었습니다!');
     } catch (err) {
       console.error('복사 실패:', err);
       alert('복사에 실패했습니다.');
@@ -248,14 +256,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // HTML 본문 추출(유지)
+  // HTML 본문 추출(미리보기의 innerHTML만 전송)
   // ----------------------------------------------------------------------------------
   function currentBodyHtml() {
     return resultArea.innerHTML || '';
   }
 
   // ----------------------------------------------------------------------------------
-  // PDF/DOCX 저장 (유지)
+  // PDF/DOCX 저장
   // ----------------------------------------------------------------------------------
   pdfBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
