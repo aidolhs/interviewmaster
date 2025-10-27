@@ -3,34 +3,33 @@
 //  - /generate : PDF 업로드 → 스트리밍 텍스트 → 미리보기 렌더
 //  - /export/pdf-html : 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(ReportLab) PDF
 //  - /export/docx-html: 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(DOCX)
-//  - 변경: 서버 하트비트(:hb) 라인을 클라이언트에서 무시 (Failed to fetch 방지용 핑 제거)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
   // ===== 요소 참조 =====
-  const uploadForm      = document.getElementById('upload-form');
-  const pdfFileInput    = document.getElementById('pdf-file');
-  const dropzone        = document.getElementById('dropzone');
-  const fileLabelText   = document.getElementById('file-text');
-  const fileNameDisplay = document.getElementById('file-name');
-  const generateBtn     = document.getElementById('generate-btn');
+  const uploadForm     = document.getElementById('upload-form');
+  const pdfFileInput   = document.getElementById('pdf-file');
+  const dropzone       = document.getElementById('dropzone');
+  const fileLabelText  = document.getElementById('file-text');
+  const fileNameDisplay= document.getElementById('file-name');
+  const generateBtn    = document.getElementById('generate-btn');
 
-  const loadingDiv      = document.getElementById('loading');
-  const resultContainer = document.getElementById('result-container');
-  const resultArea      = document.getElementById('result-area'); // 미리보기(렌더된 HTML)
-  const rawArea         = document.getElementById('raw-area');    // 원문 텍스트(마크다운)
-  const errorContainer  = document.getElementById('error-container');
-  const errorMessage    = document.getElementById('error-message');
+  const loadingDiv     = document.getElementById('loading');
+  const resultContainer= document.getElementById('result-container');
+  const resultArea     = document.getElementById('result-area'); // 미리보기(렌더링된 HTML)
+  const rawArea        = document.getElementById('raw-area');    // 원문 텍스트(마크다운)
+  const errorContainer = document.getElementById('error-container');
+  const errorMessage   = document.getElementById('error-message');
 
-  const copyBtn         = document.getElementById('copy-btn');
-  const pdfBtn          = document.querySelector('.download-btn[data-format="pdf"]');
-  const docxBtn         = document.querySelector('.download-btn[data-format="docx"]');
+  const copyBtn        = document.getElementById('copy-btn');
+  const pdfBtn         = document.querySelector('.download-btn[data-format="pdf"]');
+  const docxBtn        = document.querySelector('.download-btn[data-format="docx"]');
 
   // ===== API 엔드포인트 =====
-  const API_BASE    = window.API_BASE || '';
-  const GENERATE    = `${API_BASE}/generate`;
-  const EXPORT_PDF  = `${API_BASE}/export/pdf-html`;
-  const EXPORT_DOCX = `${API_BASE}/export/docx-html`;
+  const API_BASE   = window.API_BASE || '';
+  const GENERATE   = `${API_BASE}/generate`;
+  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
+  const EXPORT_DOCX= `${API_BASE}/export/docx-html`;
 
   // ===== 상태 =====
   let selectedFile = null;
@@ -83,15 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
     resultArea.scrollTop = resultArea.scrollHeight;
   }
 
-  // 하트비트(:hb) 라인 제거 유틸 — 라인 단위로 :hb만 들어있는 경우 모두 제거
-  //  - chunk 전체가 ':hb'인 경우
-  //  - 문장 사이에 \n:hb\n 처럼 낀 경우
-  function stripHeartbeats(str) {
-    if (!str) return str;
-    // 라인 단위로 ':hb'만 있는 경우 제거
-    return str.replace(/(^|\n)\s*:hb\s*(?=\n|$)/g, '$1');
-  }
-
   // ----------------------------------------------------------------------------------
   // 드래그&드롭
   // ----------------------------------------------------------------------------------
@@ -128,10 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (file) {
       if (!file.type.startsWith('application/pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
         alert('PDF 파일만 선택해주세요.');
-        pdfFileInput.value = '';
-        selectedFile = null;
-        generateBtn.disabled = true;
-        return;
+        pdfFileInput.value = ''; selectedFile = null; generateBtn.disabled = true; return;
       }
       selectedFile = file;
       fileLabelText.textContent = '파일이 선택되었습니다!';
@@ -173,35 +160,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        // 스트림 청크 디코드
-        let chunk = decoder.decode(value, { stream: true });
-
-        // === 하트비트 무시(핵심 수정) ===
-        chunk = stripHeartbeats(chunk);
-        if (!chunk) {
-          // 하트비트만 들어온 경우 미리보기/원문 갱신 없이 다음 반복
-          continue;
-        }
-        // ==============================
-
+        const chunk = decoder.decode(value, { stream: true });
         rawText += chunk;
         rawArea.textContent = rawText;
         renderMarkdownToResult(rawText);
         autoScrollResult();
       }
-
       setActionButtonsEnabled(rawText.trim().length > 0);
     } catch (err) {
       console.error('[GENERATE fetch error]', err);
-      // 네트워크가 끊겨도 기존 결과가 있으면 그대로 보여주고, 없으면 에러 표시
-      if (!rawText.trim()) {
-        displayError(err.message || '요청에 실패했습니다.');
-      }
+      displayError(err.message || '요청에 실패했습니다.');
     } finally {
       setLoadingState(false);
     }
@@ -214,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       if (!rawText.trim()) { alert('복사할 결과가 없습니다.'); return; }
       await navigator.clipboard.writeText(rawText);
-      alert('결과(원문 텍스트)가 클립보드에 복사되었습니다!');
+      alert('결과(원본 텍스트)가 클립보드에 복사되었습니다!');
     } catch (err) {
       console.error('복사 실패:', err);
       alert('복사에 실패했습니다.');
