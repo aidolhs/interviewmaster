@@ -11,7 +11,9 @@
     <header>
       <h1>🧑‍🎓Interview Master</h1>
       <h3>선생님의 소중한 눈👀과 시간⏲을 지켜드립니다.</h3>
-      <p style="margin-bottom: 10px;">생기부(또는 자기소개서)pdf를 업로드 하면, 서류 기반 맞춤 면접 질문과 답변을 생성합니다.</p>
+      <p style="margin-bottom: 10px;">
+        생기부(또는 자기소개서) PDF를 업로드하면, 서류 기반 맞춤 면접 질문과 답변을 생성합니다.
+      </p>
       <p style="font-size: 0.9rem; color: red; margin-top: 0; margin-bottom: 20px;">(★개인&학교 정보 삭제 필수!)</p>
     </header>
 
@@ -30,9 +32,15 @@
         </button>
       </form>
 
-      <div id="loading" class="hidden" aria-live="polite">
+      <!-- 로딩 영역: 대기 안내/접근성 보강 -->
+      <div id="loading" class="hidden" aria-live="polite" role="status">
         <div class="spinner"></div>
-        <p>Interview Master가 열심히 면접 질문과 답변을 작성하고 있어요... 잠시만 기다려주세요.</p>
+        <p style="margin:8px 0 4px;">
+          Interview Master가 면접 질문과 답변을 작성 중이에요… 문서가 길면 <strong>2~5분</strong> 소요될 수 있어요.
+        </p>
+        <p style="margin:0; font-size:0.9rem; color:#6b7280;">
+          생성이 끝날 때까지 <strong>새로고침·다른 페이지 이동을 피해주세요.</strong>
+        </p>
       </div>
 
       <div id="result-container" class="hidden">
@@ -40,7 +48,7 @@
 
         <!-- 원본 텍스트(읽기전용/접기) -->
         <details class="raw-toggle">
-          <summary>원본 텍스트 보기 (*[결과 복사하기]를 누른 후 구글 DOCS에 붙여넣기 권장)</summary>
+          <summary>원본 텍스트 보기 (*[결과 복사하기]를 누른 후 구글 Docs에 붙여넣기 권장)</summary>
           <pre id="raw-area" class="raw-area" tabindex="0"></pre>
         </details>
 
@@ -54,8 +62,9 @@
         </div>
       </div>
 
-      <div id="error-container" class="hidden" role="alert">
-        <h2>⚠️ 오류 발생</h2>
+      <!-- 안내/오류 컨테이너: 스크립트에서 필요 시 표시 -->
+      <div id="error-container" class="hidden" role="alert" aria-live="assertive">
+        <h2>⚠️ 안내</h2>
         <p id="error-message"></p>
       </div>
     </main>
@@ -71,6 +80,7 @@
   </script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
-  <script src="script.js?v=8"></script>
+  <!-- 캐시 무효화를 위해 v=9로 업데이트 -->
+  <script src="script.js?v=9"></script>
 </body>
 </html>
