@@ -1,35 +1,35 @@
 // ====================================================================================
-// script.js — Interview Master (HTML 미리보기 그대로 PDF/DOCX 변환 호출)
-//  - /generate : 기존 그대로 (스트리밍 텍스트 → 미리보기 렌더)
-//  - /export/pdf-html : 현재 미리보기의 body HTML을 JSON으로 전송해 PDF 생성
-//  - /export/docx-html: 현재 미리보기의 body HTML을 JSON으로 전송해 DOCX 생성
-//  - 버튼 라벨/상태 분리 관리 (PDF와 DOCX 각각)
+// script.js — Interview Master
+//  - (1) 업로드/스트리밍 생성 (유지)
+//  - (2) 프리뷰 렌더 (유지)
+//  - (3) 결과 복사 (유지)
+//  - (4) PDF 저장: 프론트(html2pdf.js)로 바로 출력 ★
+//  - (5) DOCX 저장: 서버 /export/docx-html 호출 (유지)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  // ===== 요소 참조 =====
-  const uploadForm     = document.getElementById('upload-form');
-  const pdfFileInput   = document.getElementById('pdf-file');
-  const dropzone       = document.getElementById('dropzone');
-  const fileLabelText  = document.getElementById('file-text');
-  const fileNameDisplay= document.getElementById('file-name');
-  const generateBtn    = document.getElementById('generate-btn');
+  // ===== 요소 =====
+  const uploadForm      = document.getElementById('upload-form');
+  const pdfFileInput    = document.getElementById('pdf-file');
+  const dropzone        = document.getElementById('dropzone');
+  const fileLabelText   = document.getElementById('file-text');
+  const fileNameDisplay = document.getElementById('file-name');
+  const generateBtn     = document.getElementById('generate-btn');
 
-  const loadingDiv     = document.getElementById('loading');
-  const resultContainer= document.getElementById('result-container');
-  const resultArea     = document.getElementById('result-area'); // 미리보기(렌더링된 HTML)
-  const rawArea        = document.getElementById('raw-area');    // 원문 텍스트(마크다운)
-  const errorContainer = document.getElementById('error-container');
-  const errorMessage   = document.getElementById('error-message');
+  const loadingDiv      = document.getElementById('loading');
+  const resultContainer = document.getElementById('result-container');
+  const resultArea      = document.getElementById('result-area'); // 미리보기 DOM
+  const rawArea         = document.getElementById('raw-area');    // 원문 텍스트
+  const errorContainer  = document.getElementById('error-container');
+  const errorMessage    = document.getElementById('error-message');
 
-  const copyBtn        = document.getElementById('copy-btn');
-  const pdfBtn         = document.querySelector('.download-btn[data-format="pdf"]');
-  const docxBtn        = document.querySelector('.download-btn[data-format="docx"]');
+  const copyBtn         = document.getElementById('copy-btn');
+  const pdfBtn          = document.querySelector('.download-btn[data-format="pdf"]');
+  const docxBtn         = document.querySelector('.download-btn[data-format="docx"]');
 
-  // ===== API 엔드포인트 =====
+  // ===== API =====
   const API_BASE   = window.API_BASE || '';
   const GENERATE   = `${API_BASE}/generate`;
-  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
   const EXPORT_DOCX= `${API_BASE}/export/docx-html`;
 
   // ===== 상태 =====
@@ -86,21 +86,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // ----------------------------------------------------------------------------------
   // 드래그&드롭
   // ----------------------------------------------------------------------------------
-  ['dragenter', 'dragover'].forEach(ev => {
-    dropzone.addEventListener(ev, (e) => {
+  ['dragenter','dragover'].forEach(ev=>{
+    dropzone.addEventListener(ev,(e)=>{
       e.preventDefault(); e.stopPropagation();
       dropzone.classList.add('dragover');
       fileLabelText.textContent = '여기에 놓으면 업로드됩니다!';
     });
   });
-  ['dragleave', 'drop'].forEach(ev => {
-    dropzone.addEventListener(ev, (e) => {
+  ['dragleave','drop'].forEach(ev=>{
+    dropzone.addEventListener(ev,(e)=>{
       e.preventDefault(); e.stopPropagation();
       dropzone.classList.remove('dragover');
       fileLabelText.textContent = '클릭하거나 여기로 PDF를 끌어다 놓으세요';
     });
   });
-  dropzone.addEventListener('drop', (e) => {
+  dropzone.addEventListener('drop',(e)=>{
     const items = e.dataTransfer.files;
     if (!items || !items.length) return;
     const file = items[0];
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 파일 선택
-  pdfFileInput.addEventListener('change', () => {
+  pdfFileInput.addEventListener('change',()=>{
     const file = pdfFileInput.files[0];
     if (file) {
       if (!file.type.startsWith('application/pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
@@ -134,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 생성 (스트리밍)
+  // (1) 생성 스트리밍
   // ----------------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -180,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 결과 복사
+  // (2) 결과 복사
   // ----------------------------------------------------------------------------------
   copyBtn.addEventListener('click', async () => {
     try {
@@ -194,33 +194,47 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // HTML 본문 추출(미리보기의 innerHTML만 전송)
-  // ----------------------------------------------------------------------------------
-  function currentBodyHtml() {
-    // resultArea 내부만 그대로 저장한다 (style, head 등은 서버에서 처리)
-    return resultArea.innerHTML || '';
-  }
-
-  // ----------------------------------------------------------------------------------
-  // PDF/DOCX 저장
+  // (3) PDF 저장 — 프론트에서 바로(html2pdf.js)
   // ----------------------------------------------------------------------------------
   pdfBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
-    await exportHtml(EXPORT_PDF, pdfBtn, 'PDF 생성 중...', '.PDF로 저장', 'pdf');
+    try {
+      pdfBtn.disabled = true;
+      pdfBtn.textContent = 'PDF 생성 중...';
+
+      // 미리보기 DOM 그대로 캡처
+      const element = resultArea;
+
+      const opt = {
+        margin:       [10,10,10,10],           // mm
+        filename:     '면접_질문+답변.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true }, // 해상도↑
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:    { mode: ['css','legacy'] }   // css page-break 지원
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    } catch (e) {
+      console.error('[PDF export error]', e);
+      alert('PDF 생성 중 오류가 발생했습니다.');
+    } finally {
+      pdfBtn.textContent = '.PDF로 저장';
+      pdfBtn.disabled = false;
+    }
   });
 
+  // ----------------------------------------------------------------------------------
+  // (4) DOCX 저장 — 서버 호출 유지
+  // ----------------------------------------------------------------------------------
   docxBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
-    await exportHtml(EXPORT_DOCX, docxBtn, 'DOCX 생성 중...', '.DOCX로 저장', 'docx');
-  });
-
-  async function exportHtml(url, button, busyLabel, idleLabel, ext) {
     try {
-      button.disabled = true;
-      button.textContent = busyLabel;
+      docxBtn.disabled = true;
+      docxBtn.textContent = 'DOCX 생성 중...';
 
-      const payload = { html: currentBodyHtml() };
-      const res = await fetch(url, {
+      const payload = { html: resultArea.innerHTML || '' };
+      const res = await fetch(EXPORT_DOCX, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -239,17 +253,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const dlUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = dlUrl;
-      a.download = `면접_질문+답변.${ext}`;
+      a.download = '면접_질문+답변.docx';
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(dlUrl);
     } catch (e) {
-      console.error('[EXPORT error]', e);
+      console.error('[DOCX export error]', e);
       alert(e.message || '다운로드 중 오류가 발생했습니다.');
     } finally {
-      button.textContent = idleLabel;
-      button.disabled = false;
+      docxBtn.textContent = '.DOCX로 저장';
+      docxBtn.disabled = false;
     }
-  }
+  });
 });
