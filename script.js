@@ -1,12 +1,9 @@
 // ====================================================================================
-// script.js — Interview Master (스트리밍 개선 + 하트비트 무시)
-//  - /generate : PDF 업로드 → 서버 스트리밍(패딩/하트비트 포함) → 미리보기 실시간 렌더
-//  - /export/pdf-html : 미리보기의 body HTML(JSON) → 서버(PDF)
-//  - /export/docx-html: 미리보기의 body HTML(JSON) → 서버(DOCX)
+// script.js — Interview Master (스트리밍 개선: 하트비트 완전 무시 + 활동 감시 타이머)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  // ===== DOM 참조 =====
+  // ===== DOM =====
   const uploadForm       = document.getElementById('upload-form');
   const pdfFileInput     = document.getElementById('pdf-file');
   const dropzone         = document.getElementById('dropzone');
@@ -17,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const loadingDiv       = document.getElementById('loading');
   const resultContainer  = document.getElementById('result-container');
   const resultArea       = document.getElementById('result-area'); // 미리보기(HTML)
-  const rawArea          = document.getElementById('raw-area');    // 원문 텍스트(MD)
+  const rawArea          = document.getElementById('raw-area');    // 원문(MD)
   const errorContainer   = document.getElementById('error-container');
   const errorMessage     = document.getElementById('error-message');
 
@@ -25,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const pdfBtn           = document.querySelector('.download-btn[data-format="pdf"]');
   const docxBtn          = document.querySelector('.download-btn[data-format="docx"]');
 
-  // ===== API 엔드포인트 =====
+  // ===== API =====
   const API_BASE   = window.API_BASE || '';
   const GENERATE   = `${API_BASE}/generate`;
   const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
@@ -35,11 +32,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedFile = null;
   let rawText = '';
 
-  // ===== 마크다운 렌더러 =====
+  // ===== MD 렌더러 =====
   marked.use({ breaks: true, gfm: true });
 
   // ----------------------------------------------------------------------------------
-  // 공통 유틸
+  // 유틸
   // ----------------------------------------------------------------------------------
   function hideResults() {
     resultContainer.classList.add('hidden');
@@ -49,13 +46,11 @@ document.addEventListener('DOMContentLoaded', () => {
     rawText = '';
     setActionButtonsEnabled(false);
   }
-
   function setActionButtonsEnabled(enabled) {
     copyBtn.disabled = !enabled;
     pdfBtn.disabled  = !enabled;
     docxBtn.disabled = !enabled;
   }
-
   function setLoadingState(isLoading) {
     if (isLoading) {
       generateBtn.disabled = true;
@@ -67,17 +62,14 @@ document.addEventListener('DOMContentLoaded', () => {
       loadingDiv.classList.add('hidden');
     }
   }
-
   function displayError(message) {
     errorMessage.textContent = message;
     errorContainer.classList.remove('hidden');
   }
-
   function renderMarkdownToResult(text) {
     const html = DOMPurify.sanitize(marked.parse(text || ''));
     resultArea.innerHTML = html;
   }
-
   function autoScrollResult() {
     resultArea.scrollTop = resultArea.scrollHeight;
   }
@@ -100,10 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   dropzone.addEventListener('drop', (e) => {
-    const items = e.dataTransfer.files;
-    if (!items || !items.length) return;
-    const file = items[0];
-    if (!file || (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) {
+    const file = (e.dataTransfer.files || [])[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       alert('PDF 파일만 업로드할 수 있습니다.');
       return;
     }
@@ -133,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 생성 (스트리밍) — 서버 하트비트(:hb) 및 패딩 제거
+  // 생성(스트리밍) — 하트비트(:hb) 무시 + 활동 감시 타이머
   // ----------------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -161,18 +152,49 @@ document.addEventListener('DOMContentLoaded', () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
-      // 초기 패딩(2KB + 개행)은 자연스럽게 버려지고, 하트비트는 아래 정규식으로 제거
+      // 활동 감시: 유효한(하트비트가 아닌) 데이터가 들어오면 갱신
+      let lastUsefulTs = Date.now();
+      const INFO_WAIT_MS   = 25_000; // 25초 지나면 안내
+      const HARD_TIMEOUT_MS=120_000; // 120초 지나면 중단
+
+      let showedInfo = false;
+
+      const watch = setInterval(() => {
+        const now = Date.now();
+        if (!showedInfo && now - lastUsefulTs > INFO_WAIT_MS) {
+          showedInfo = true;
+          // 안내만 띄우고 연결은 유지
+          errorMessage.textContent = '분석 중입니다. 문서가 길면 시간이 걸릴 수 있어요…';
+          errorContainer.classList.remove('hidden');
+        }
+        if (now - lastUsefulTs > HARD_TIMEOUT_MS) {
+          // 강제 중단
+          clearInterval(watch);
+          try { reader.cancel(); } catch {}
+          setLoadingState(false);
+          displayError('네트워크 지연으로 연결이 중단되었습니다. 다시 시도해 주세요.');
+        }
+      }, 1000);
+
+      // 스트리밍 루프
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         let chunk = decoder.decode(value, { stream: true });
 
-        // ★ 서버 하트비트/패딩 무시
-        chunk = chunk.replace(/\u200B/g, '');        // zero-width 제거(혹시 남아있을 경우)
-        chunk = chunk.replace(/\r?\n:hb\r?\n/g, ''); // ":hb" 라인 제거
+        // 1) zero-width 제거
+        chunk = chunk.replace(/\u200B/g, '');
 
-        if (!chunk) continue;
+        // 2) 줄 단위 하트비트 완전 제거  (예: 단독 줄 ":hb" 혹은 ":hb       ")
+        chunk = chunk.replace(/^:hb[^\S\r\n]*$/gm, '');
+
+        // 3) 앞뒤 공백만 남으면 스킵
+        if (!chunk.trim()) continue;
+
+        // "유효한" 데이터 도착
+        lastUsefulTs = Date.now();
+        errorContainer.classList.add('hidden');
 
         rawText += chunk;
         rawArea.textContent = rawText;
@@ -180,13 +202,14 @@ document.addEventListener('DOMContentLoaded', () => {
         autoScrollResult();
       }
 
+      clearInterval(watch);
       setActionButtonsEnabled(rawText.trim().length > 0);
     } catch (err) {
       console.error('[GENERATE fetch error]', err);
       const msg =
-        (err && err.message) ?
-          err.message.replace(/^TypeError:\s*/,'') :
-          '네트워크 지연으로 연결이 중단되었습니다. 다시 시도해 주세요.';
+        (err && err.message)
+          ? err.message.replace(/^TypeError:\s*/,'')
+          : '네트워크 지연으로 연결이 중단되었습니다. 다시 시도해 주세요.';
       displayError(msg);
     } finally {
       setLoadingState(false);
@@ -208,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // HTML 본문 추출(미리보기의 innerHTML만 전송)
+  // HTML 본문 추출(미리보기의 innerHTML)
   // ----------------------------------------------------------------------------------
   function currentBodyHtml() {
     return resultArea.innerHTML || '';
@@ -221,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
     await exportHtml(EXPORT_PDF, pdfBtn, 'PDF 생성 중...', '.PDF로 저장', 'pdf');
   });
-
   docxBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
     await exportHtml(EXPORT_DOCX, docxBtn, 'DOCX 생성 중...', '.DOCX로 저장', 'docx');
