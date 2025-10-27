@@ -3,8 +3,8 @@
 //  - (1) 업로드/스트리밍 생성 (유지)
 //  - (2) 프리뷰 렌더 (유지)
 //  - (3) 결과 복사 (유지)
-//  - (4) PDF 저장: 오프스크린 클론을 html2pdf로 캡처 ★빈 PDF 방지
-//  - (5) DOCX 저장: 서버 /export/docx-html (유지)
+//  - (4) PDF 저장: 서버(/export/pdf-html, Playwright) 호출 ★텍스트 유지
+//  - (5) DOCX 저장: 서버(/export/docx-html) 호출 (유지)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const API_BASE   = window.API_BASE || '';
   const GENERATE   = `${API_BASE}/generate`;
+  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
   const EXPORT_DOCX= `${API_BASE}/export/docx-html`;
 
   let selectedFile = null;
@@ -71,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
     resultArea.scrollTop = resultArea.scrollHeight;
   }
 
-  // 드래그&드롭/파일 선택 (기존 그대로)
+  // 드래그&드롭/파일 선택 (유지)
   ['dragenter','dragover'].forEach(ev=>{
     dropzone.addEventListener(ev,(e)=>{
       e.preventDefault(); e.stopPropagation();
@@ -118,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 생성 스트리밍 (기존 그대로)
+  // (1) 생성 스트리밍 (유지)
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideResults();
@@ -162,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 결과 복사 (기존 그대로)
+  // (2) 결과 복사 (유지)
   copyBtn.addEventListener('click', async () => {
     try {
       if (!rawText.trim()) { alert('복사할 결과가 없습니다.'); return; }
@@ -174,66 +175,48 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // ==========================
-  // ★ PDF 저장 — 오프스크린 클론을 캡처
-  // ==========================
-  function makePrintableClone(sourceEl) {
-    const wrapper = document.createElement('div');
-    wrapper.style.position = 'fixed';
-    wrapper.style.left = '-100000px'; // 화면 밖
-    wrapper.style.top = '0';
-    wrapper.style.width = '794px';    // A4 폭(96dpi 기준) 근사값
-    wrapper.style.background = '#fff';
-
-    const clone = sourceEl.cloneNode(true);
-    // 스크롤/높이 제한 제거
-    clone.style.maxHeight = 'none';
-    clone.style.overflow = 'visible';
-    clone.style.height = 'auto';
-    clone.style.background = '#fff';
-    clone.style.padding = '16px';
-
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
-    return { wrapper, clone };
-  }
-
+  // (3) PDF 저장 — 서버(Playwright) 호출
   pdfBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
-
-    pdfBtn.disabled = true;
-    pdfBtn.textContent = 'PDF 생성 중...';
-
-    const { wrapper, clone } = makePrintableClone(resultArea);
     try {
-      const opt = {
-        margin:       [10, 10, 10, 10],
-        filename:     '면접_질문+답변.pdf',
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth:  wrapper.offsetWidth,
-          windowHeight: wrapper.scrollHeight
-        },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:    { mode: ['css', 'legacy'] }
-      };
-      await html2pdf().set(opt).from(clone).save();
+      pdfBtn.disabled = true;
+      pdfBtn.textContent = 'PDF 생성 중...';
+
+      const payload = { html: resultArea.innerHTML || '' };
+      const res = await fetch(EXPORT_PDF, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        let msg = `서버 오류: ${res.status} ${res.statusText}`;
+        try {
+          const data = await res.json();
+          if (data && data.error) msg = `다운로드 중 오류: ${data.error}`;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+
+      const blob = await res.blob();
+      const dlUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = '면접_질문+답변.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(dlUrl);
     } catch (e) {
-      console.error('[PDF export error]', e);
-      alert('PDF 생성 중 오류가 발생했습니다.');
+      console.error('[EXPORT PDF error]', e);
+      alert(e.message || '다운로드 중 오류가 발생했습니다.');
     } finally {
-      wrapper.remove(); // 오프스크린 클론 정리
       pdfBtn.textContent = '.PDF로 저장';
       pdfBtn.disabled = false;
     }
   });
 
-  // DOCX 저장 (기존 그대로)
+  // (4) DOCX 저장 — 서버 호출 (유지)
   docxBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
     try {
@@ -241,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
       docxBtn.textContent = 'DOCX 생성 중...';
 
       const payload = { html: resultArea.innerHTML || '' };
-      const res = await fetch(`${EXPORT_DOCX}`, {
+      const res = await fetch(EXPORT_DOCX, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
