@@ -1,8 +1,8 @@
 // ====================================================================================
-// script.js — Interview Master (HTML 미리보기 그대로 PDF/DOCX 서버 변환 호출)
-//  - /generate : 기존 그대로 (스트리밍 텍스트 → 미리보기 렌더)
-//  - /export/pdf-html : 미리보기 body HTML을 JSON으로 전송 → 서버(Playwright)가 텍스트 PDF 생성
-//  - /export/docx-html: 미리보기 body HTML을 JSON으로 전송 → 서버(DOCX) 생성
+// script.js — Interview Master (HTML 미리보기 그대로 DOCX/PDF 서버 변환 호출)
+//  - /generate : PDF 업로드 → 스트리밍 텍스트 → 미리보기 렌더
+//  - /export/pdf-html : 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(ReportLab) PDF
+//  - /export/docx-html: 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(DOCX)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== API 엔드포인트 =====
   const API_BASE   = window.API_BASE || '';
   const GENERATE   = `${API_BASE}/generate`;
-  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;   // 서버가 Playwright로 PDF 생성
+  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
   const EXPORT_DOCX= `${API_BASE}/export/docx-html`;
 
   // ===== 상태 =====
@@ -196,12 +196,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // HTML 본문 추출(미리보기의 innerHTML만 전송)
   // ----------------------------------------------------------------------------------
   function currentBodyHtml() {
-    // resultArea 내부만 그대로 저장한다 (style, head 등은 서버에서 처리)
     return resultArea.innerHTML || '';
   }
 
   // ----------------------------------------------------------------------------------
-  // PDF/DOCX 저장 (서버 호출)
+  // PDF/DOCX 저장
   // ----------------------------------------------------------------------------------
   pdfBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
