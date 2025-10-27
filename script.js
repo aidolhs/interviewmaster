@@ -1,35 +1,34 @@
 // ====================================================================================
-// script.js — Interview Master (HTML 미리보기 그대로 DOCX/PDF 서버 변환 호출)
-//  - /generate : PDF 업로드 → 스트리밍 텍스트 → 미리보기 렌더
-//  - /export/pdf-html : 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(ReportLab) PDF
-//  - /export/docx-html: 현재 미리보기의 body HTML을 JSON으로 전송 → 서버(DOCX)
+// script.js — Interview Master (하트비트 없이 안정 스트리밍: 상한 타임아웃 + 1회 재시도 + 안내 배너)
+//  - 서버 코드는 수정하지 않습니다. (기존 /generate 스트림 그대로)
+//  - Gunicorn: --timeout=300 권장 (Start Command에서 적용)
 // ====================================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
   // ===== 요소 참조 =====
-  const uploadForm     = document.getElementById('upload-form');
-  const pdfFileInput   = document.getElementById('pdf-file');
-  const dropzone       = document.getElementById('dropzone');
-  const fileLabelText  = document.getElementById('file-text');
-  const fileNameDisplay= document.getElementById('file-name');
-  const generateBtn    = document.getElementById('generate-btn');
+  const uploadForm      = document.getElementById('upload-form');
+  const pdfFileInput    = document.getElementById('pdf-file');
+  const dropzone        = document.getElementById('dropzone');
+  const fileLabelText   = document.getElementById('file-text');
+  const fileNameDisplay = document.getElementById('file-name');
+  const generateBtn     = document.getElementById('generate-btn');
 
-  const loadingDiv     = document.getElementById('loading');
-  const resultContainer= document.getElementById('result-container');
-  const resultArea     = document.getElementById('result-area'); // 미리보기(렌더링된 HTML)
-  const rawArea        = document.getElementById('raw-area');    // 원문 텍스트(마크다운)
-  const errorContainer = document.getElementById('error-container');
-  const errorMessage   = document.getElementById('error-message');
+  const loadingDiv      = document.getElementById('loading');
+  const resultContainer = document.getElementById('result-container');
+  const resultArea      = document.getElementById('result-area'); // 미리보기(HTML)
+  const rawArea         = document.getElementById('raw-area');    // 원문(MD)
+  const errorContainer  = document.getElementById('error-container');
+  const errorMessage    = document.getElementById('error-message');
 
-  const copyBtn        = document.getElementById('copy-btn');
-  const pdfBtn         = document.querySelector('.download-btn[data-format="pdf"]');
-  const docxBtn        = document.querySelector('.download-btn[data-format="docx"]');
+  const copyBtn         = document.getElementById('copy-btn');
+  const pdfBtn          = document.querySelector('.download-btn[data-format="pdf"]');
+  const docxBtn         = document.querySelector('.download-btn[data-format="docx"]');
 
-  // ===== API 엔드포인트 =====
-  const API_BASE   = window.API_BASE || '';
-  const GENERATE   = `${API_BASE}/generate`;
-  const EXPORT_PDF = `${API_BASE}/export/pdf-html`;
-  const EXPORT_DOCX= `${API_BASE}/export/docx-html`;
+  // ===== API =====
+  const API_BASE    = window.API_BASE || '';
+  const GENERATE    = `${API_BASE}/generate`;
+  const EXPORT_PDF  = `${API_BASE}/export/pdf-html`;
+  const EXPORT_DOCX = `${API_BASE}/export/docx-html`;
 
   // ===== 상태 =====
   let selectedFile = null;
@@ -83,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ----------------------------------------------------------------------------------
-  // 드래그&드롭
+  // 드래그&드롭 (유지)
   // ----------------------------------------------------------------------------------
   ['dragenter', 'dragover'].forEach(ev => {
     dropzone.addEventListener(ev, (e) => {
@@ -112,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     generateBtn.disabled = false;
   });
 
-  // 파일 선택
+  // 파일 선택 (유지)
   pdfFileInput.addEventListener('change', () => {
     const file = pdfFileInput.files[0];
     if (file) {
@@ -133,10 +132,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // 생성 (스트리밍)
+  // 생성(스트리밍) — 상한 타임아웃 + 무중단 안내 + 1회 재시도
   // ----------------------------------------------------------------------------------
   uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    await runGenerateWithRetry(1); // 실패 시 1회 재시도
+  });
+
+  async function runGenerateWithRetry(maxRetry = 0) {
     hideResults();
     setLoadingState(true);
 
@@ -146,46 +149,98 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    let attempt = 0;
+    while (true) {
+      try {
+        await runGenerateOnce();
+        break; // 성공
+      } catch (err) {
+        console.error('[GENERATE] attempt failed:', err);
+        if (attempt >= maxRetry) {
+          if (!rawText.trim()) {
+            displayError(err.message || '요청에 실패했습니다.');
+          }
+          break;
+        }
+        attempt += 1;
+        // 짧은 백오프 후 재시도
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    setLoadingState(false);
+  }
+
+  async function runGenerateOnce() {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    // (A) 전체 상한 타임아웃 (예: 5분 30초)
+    const OVERALL_LIMIT_MS = 330000;
+    const controller = new AbortController();
+    const overallTimer = setTimeout(() => controller.abort(new Error('처리가 오래 걸려 연결을 종료했습니다. 다시 시도해 주세요.')), OVERALL_LIMIT_MS);
+
+    // (B) “무중단 안내 배너”: 유효 데이터가 오래 안 오면 안내만 띄우고 연결은 유지
+    let lastUsefulTs = Date.now();
+    const INFO_BANNER_AFTER_MS = 25000; // 25초
+    let showedInfo = false;
+    const watch = setInterval(() => {
+      const now = Date.now();
+      if (!showedInfo && now - lastUsefulTs > INFO_BANNER_AFTER_MS) {
+        showedInfo = true;
+        errorMessage.textContent = '분석 중입니다. 문서가 길면 시간이 걸릴 수 있어요…';
+        errorContainer.classList.remove('hidden');
+      }
+    }, 1000);
+
+    // (C) fetch 시작
+    const response = await fetch(GENERATE, { method: 'POST', body: formData, signal: controller.signal });
+    if (!response.ok) {
+      clearTimeout(overallTimer); clearInterval(watch);
+      throw new Error(`서버 오류: ${response.status} ${response.statusText}`);
+    }
+
+    resultContainer.classList.remove('hidden');
+    resultArea.innerHTML = '';
+    rawText = '';
+    rawArea.textContent = '';
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      const response = await fetch(GENERATE, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error(`서버 오류: ${response.status} ${response.statusText}`);
-
-      resultContainer.classList.remove('hidden');
-      resultArea.innerHTML = '';
-      rawText = '';
-      rawArea.textContent = '';
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
         const chunk = decoder.decode(value, { stream: true });
+        if (!chunk) continue;
+
+        // “유효한” 데이터 도착 → 안내 배너 숨김
+        lastUsefulTs = Date.now();
+        errorContainer.classList.add('hidden');
+
         rawText += chunk;
         rawArea.textContent = rawText;
         renderMarkdownToResult(rawText);
         autoScrollResult();
       }
-      setActionButtonsEnabled(rawText.trim().length > 0);
-    } catch (err) {
-      console.error('[GENERATE fetch error]', err);
-      displayError(err.message || '요청에 실패했습니다.');
     } finally {
-      setLoadingState(false);
+      clearTimeout(overallTimer);
+      clearInterval(watch);
     }
-  });
+
+    setActionButtonsEnabled(rawText.trim().length > 0);
+  }
 
   // ----------------------------------------------------------------------------------
-  // 결과 복사
+  // 결과 복사 (유지)
   // ----------------------------------------------------------------------------------
   copyBtn.addEventListener('click', async () => {
     try {
       if (!rawText.trim()) { alert('복사할 결과가 없습니다.'); return; }
       await navigator.clipboard.writeText(rawText);
-      alert('결과(원본 텍스트)가 클립보드에 복사되었습니다!');
+      alert('결과(원문 텍스트)가 클립보드에 복사되었습니다!');
     } catch (err) {
       console.error('복사 실패:', err);
       alert('복사에 실패했습니다.');
@@ -193,14 +248,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ----------------------------------------------------------------------------------
-  // HTML 본문 추출(미리보기의 innerHTML만 전송)
+  // HTML 본문 추출(유지)
   // ----------------------------------------------------------------------------------
   function currentBodyHtml() {
     return resultArea.innerHTML || '';
   }
 
   // ----------------------------------------------------------------------------------
-  // PDF/DOCX 저장
+  // PDF/DOCX 저장 (유지)
   // ----------------------------------------------------------------------------------
   pdfBtn.addEventListener('click', async () => {
     if (!rawText.trim()) { alert('다운로드할 내용이 없습니다.'); return; }
